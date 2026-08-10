@@ -574,5 +574,193 @@ document.head.insertAdjacentHTML('beforeend',`<style id="v17-style">
 @media(max-width:900px){.home-layout{grid-template-columns:1fr;grid-template-areas:'office' 'dashboard' 'portfolio'}.office-card{width:fit-content;max-width:100%;margin:auto}.home-dashboard{grid-template-columns:1fr 1fr}.home-dashboard .mini-panel:nth-child(2){grid-column:1/-1}.home-dashboard .mini-panel:nth-child(3){grid-column:1/-1}}
 @media(max-width:720px){.home-layout{display:block}.office-card{width:100%;margin-bottom:9px}.home-dashboard{display:grid;grid-template-columns:1fr}.home-dashboard .mini-panel{grid-column:auto!important}.compact-stat.five{grid-template-columns:1fr 1fr}.compact-stat.five div:last-child{grid-column:1/-1}.bottomnav button{min-width:0;padding:3px 1px}.bottomnav .system-menu-btn{display:block}.scene-actions{grid-template-columns:repeat(3,1fr)}}
 </style>`);
-installUiV17();bindDialogSafetyV17();
+/* V1.8：年度评奖、强竞品、公司投资与行业事件 */
+const V18_VERSION='1.8';
+const V18_INVESTMENT_DEFS={
+  engine:{name:'自研引擎',max:5,base:260000,step:170000,desc:'每级提高项目品质产出 4%，并改善技术奖竞争力。'},
+  qa:{name:'质量保障中心',max:5,base:190000,step:125000,desc:'阶段切换和发行前减少 Bug，降低赶工风险。'},
+  community:{name:'玩家社区',max:5,base:220000,step:145000,desc:'每级提高销售触达 5%，增强玩家选择奖竞争力。'},
+  intelligence:{name:'市场情报部',max:4,base:180000,step:140000,desc:'削弱同类型竞品分流，并展示竞争公司的真实水平。'}
+};
+const V18_RIVAL_GENRES=[['动作','射击'],['RPG','冒险'],['益智','模拟'],['大型','RPG'],['模拟','经营'],['策略','冒险']];
+const V18_EVENT_KINDS=['expo','training','engine','streamer','leak','outage','poach','platformFund','audit','festival','awardCampaign','renovation','grant','interview'];
+
+function initV18(){
+  if(!S)return;initV17();S.version=V18_VERSION;
+  S.investments={engine:0,qa:0,community:0,intelligence:0,...(S.investments||{})};
+  S.corporate={bonusCooldown:0,campaignCooldown:0,eventCooldown:0,nextLaunchBoost:0,awardBoost:0,contractPenalty:0,...(S.corporate||{})};
+  S.awardHistory=Array.isArray(S.awardHistory)?S.awardHistory:[];S.eventHistory=Array.isArray(S.eventHistory)?S.eventHistory:[];
+  S.pendingEvaluation=!!S.pendingEvaluation;
+  S.rivals.forEach((r,i)=>{
+    r.specialties=r.specialties||V18_RIVAL_GENRES[i%V18_RIVAL_GENRES.length];
+    r.power=clamp(Math.max(r.power||1,.98+i*.045),.95,1.72);
+    r.quality=clamp(r.quality||6.15+r.power*1.15,6.8,9.35);
+    r.tech=r.tech||1+Math.floor(i/2);r.cash=r.cash||Math.round(700000*r.power);r.profit=Number.isFinite(r.profit)?r.profit:Math.round((r.income||0)*.28);
+    r.momentum=r.momentum||0;r.seasonHistory=r.seasonHistory||{};r.awards=r.awards||0;
+  });
+}
+
+function v18InvestmentCost(id){let d=V18_INVESTMENT_DEFS[id],lv=S.investments[id]||0;return d.base+d.step*lv}
+function v18InvestmentRows(){
+  return Object.entries(V18_INVESTMENT_DEFS).map(([id,d])=>{let lv=S.investments[id]||0,cost=v18InvestmentCost(id);return`<div class="investment-row"><div><h3>${d.name} <span class="tag">Lv.${lv}/${d.max}</span></h3><p>${d.desc}</p></div><button ${lv>=d.max||S.money<cost?'disabled':''} onclick="buyInvestmentV18('${id}')">${lv>=d.max?'已完成':`投入 ${money(cost)}`}</button></div>`}).join('');
+}
+window.openInvestmentsV18=function(){
+  initV18();let c=S.corporate;
+  let actions=`<div class="investment-row"><div><h3>团队季度奖金</h3><p>恢复全员体力与创作状态，冷却 ${c.bonusCooldown||0} 周。</p></div><button ${c.bonusCooldown||S.money<90000?'disabled':''} onclick="teamBonusV18()">发放 ${money(90000)}</button></div><div class="investment-row"><div><h3>品牌发行战役</h3><p>让下一款作品销售触达 +18%，同时提高本年度评奖声量，冷却 ${c.campaignCooldown||0} 周。</p></div><button ${c.campaignCooldown||S.money<160000?'disabled':''} onclick="brandCampaignV18()">启动 ${money(160000)}</button></div>`;
+  openV13('公司投资与经营预算',`<p class="hint">中后期资金可以转化为制作能力、销售渠道、团队状态和竞争情报。投资不是纯加分：过度投入会压缩下一款作品的现金流。</p>${v18InvestmentRows()}<h2>一次性经营行动</h2>${actions}`);
+};
+window.buyInvestmentV18=function(id){let d=V18_INVESTMENT_DEFS[id];if(!d)return;initV18();let lv=S.investments[id]||0,cost=v18InvestmentCost(id);if(lv>=d.max)return toast('该投资已经完成。');if(S.money<cost)return toast('公司资金不足。');S.money-=cost;S.investments[id]=lv+1;addNews('公司投资',`${d.name}升至 Lv.${lv+1}，投入 ${money(cost)}。`,d.name);save();openInvestmentsV18();render()};
+window.teamBonusV18=function(){initV18();if(S.corporate.bonusCooldown||S.money<90000)return toast('暂时无法发放奖金。');S.money-=90000;S.corporate.bonusCooldown=12;S.staff.forEach(e=>{e.energy=clamp(e.energy+28,0,100);e.creativity=clamp((e.creativity||0)+10,-30,8)});addNews('团队激励','发放季度奖金，团队状态明显恢复。');save();openInvestmentsV18();render()};
+window.brandCampaignV18=function(){initV18();if(S.corporate.campaignCooldown||S.money<160000)return toast('暂时无法启动品牌战役。');S.money-=160000;S.corporate.campaignCooldown=16;S.corporate.nextLaunchBoost=Math.max(S.corporate.nextLaunchBoost||0,.18);S.corporate.awardBoost=Math.max(S.corporate.awardBoost||0,.28);S.fans+=220;addNews('品牌战役','下一款作品将获得额外销售触达，本年度评奖声量上升。');save();openInvestmentsV18();render()};
+
+let v18BaseSetSpeed=window.setSpeed;
+let v18PreferredSpeed=speed>0?speed:1;
+window.setSpeed=function(n){
+  let target=Number(n)||0;
+  if(target>0)v18PreferredSpeed=target;
+  if(modalState&&speed===0&&target>0){modalState.speed=target;v14UpdateSpeedUI();return}
+  v18BaseSetSpeed(target);
+};
+let v18BasePauseFor=window.pauseFor;
+window.pauseFor=function(reason,major=false){if(speed>0)v18PreferredSpeed=speed;v18BasePauseFor(reason,major)};
+let v18BaseResumePause=window.v14ResumePause;
+window.v14ResumePause=function(){if(modalState&&v18PreferredSpeed>0)modalState.speed=v18PreferredSpeed;v18BaseResumePause()};
+
+let v18BaseProcessStaff=window.processStaff;
+window.processStaff=function(){
+  initV18();v18BaseProcessStaff();let c=S.corporate;
+  c.bonusCooldown=Math.max(0,(c.bonusCooldown||0)-1);c.campaignCooldown=Math.max(0,(c.campaignCooldown||0)-1);c.eventCooldown=Math.max(0,(c.eventCooldown||0)-1);
+};
+
+let v18BaseWeeklyPayroll=window.weeklyPayroll;
+window.weeklyPayroll=function(){
+  initV18();v18BaseWeeklyPayroll();if(S.week!==1)return;let age=Math.max(0,S.year-2028),overhead=Math.round((6000+S.staff.length*1800+S.projects.length*2500+S.level*3500)*(1+age*.035));S.money-=overhead;let line=S.news.find(n=>n.type==='月度财务'&&n.year===S.year&&n.month===S.month);if(line)line.text+=` 竞争运营与合规支出 ${money(overhead)}。`;
+};
+
+let v18BaseProcessProject=window.processProject;
+window.processProject=function(){
+  initV18();let before=new Map(S.projects.map(p=>[p.id,{phase:p.phase,stage:p.stage,bugs:p.bugs,quality:{...p.quality}}]));v18BaseProcessProject();
+  let engine=S.investments.engine||0,qa=S.investments.qa||0;
+  S.projects.forEach(p=>{let old=before.get(p.id);if(!old)return;if(engine){Object.keys(p.quality).forEach(k=>{let gain=p.quality[k]-(old.quality[k]||0);if(gain>0)p.quality[k]+=gain*engine*.04})}if(qa&&(p.phase!==old.phase||p.stage!==old.stage)){let cut=Math.ceil(qa*1.35);p.bugs=Math.max(0,p.bugs-cut);if(cut)addNews('质量保障',`《${p.name}》阶段审查消除了 ${Math.min(cut,(p.bugs||0)+cut)} 个潜在问题。`,p.name)}});
+};
+
+let v18BaseReleaseProject=window.releaseProject;
+window.releaseProject=function(id){
+  initV18();let p=v13Project(id)||S.project;if(!p)return;let qa=S.investments.qa||0;if(qa)p.bugs=Math.max(0,p.bugs-qa*2);let saleIds=new Set(S.sales.map(x=>x.gameId));v18BaseReleaseProject(id);
+  let sale=S.sales.find(x=>!saleIds.has(x.gameId));if(!sale)return;let g=S.games.find(x=>x.id===sale.gameId),community=S.investments.community||0,c=S.corporate,boost=1+community*.05+(c.nextLaunchBoost||0)-(c.contractPenalty||0);sale.targetGross=Math.round(sale.targetGross*Math.max(.72,boost));if(g){g.mechanics=g.mechanics||{};g.mechanics.communityBoost=1+community*.05;g.mechanics.campaignBoost=1+(c.nextLaunchBoost||0);g.mechanics.contractPenalty=1-(c.contractPenalty||0)}c.nextLaunchBoost=0;c.contractPenalty=0;save();render();
+};
+
+let v18BaseRivalPressure=window.v17RivalPressure||v17RivalPressure;
+window.v17RivalPressure=function(p){
+  initV18();let relevant=S.rivals.filter(r=>r.specialties.some(x=>x===p.genre||x===p.theme||(x==='大型'&&p.size==='large'))),intel=S.investments.intelligence||0;if(!relevant.length)return clamp(v18BaseRivalPressure(p)+intel*.025,.72,1.04);
+  let threat=relevant.reduce((m,r)=>Math.max(m,(r.power||1)+(r.momentum||0)*.03),1),pressure=1-relevant.length*.045-Math.max(0,threat-1)*.22+intel*.035;return clamp(pressure,.62,1.02);
+};
+
+function v18RivalTitle(genre,seed){let a=['零界','霓虹','深海','赤星','微光','边境','回声','终端'],b={动作:'突袭',射击:'火线',RPG:'传说',冒险:'档案',益智:'谜阵',模拟:'物语',经营:'大亨',策略:'战线',大型:'纪元'};return`${a[seed%a.length]}${b[genre]||'计划'}`}
+function simulateRivalSeasonV18(year){
+  initV18();let candidates=[],age=Math.max(0,year-2028),scale=1+age*.055;
+  S.rivals.forEach((r,i)=>{let count=2+(r.power>1.18?1:0)+(r.momentum>=2&&Math.random()<.5?1:0),season=[],income=0,profit=0;
+    for(let n=0;n<count;n++){let genre=r.specialties[n%r.specialties.length],score=clamp(r.quality+(r.tech||1)*.08+(Math.random()-.5)*1.25,5.4,9.7),gross=Math.round((170000+score*score*10500)*r.power*scale*(.88+Math.random()*.28)),cost=Math.round(gross*(.47+Math.random()*.1)),net=gross-cost,q={art:clamp(score+(Math.random()-.5)*1.3,4,10),code:clamp(score+(r.tech-2)*.18+(Math.random()-.5),4,10),music:clamp(score+(Math.random()-.5)*1.5,4,10),idea:clamp(score+(Math.random()-.5)*1.25,4,10)};let g={title:v18RivalTitle(genre,i*7+n+year),genre,score:+score.toFixed(1),gross,cost,profit:net,quality:q,company:r.name,rivalId:r.id,isPlayer:false};season.push(g);candidates.push(g);income+=gross;profit+=net}
+    r.income=income;r.profit=profit;r.cash+=profit;r.seasonHistory[year]={income,profit,games:season.map(x=>({title:x.title,genre:x.genre,score:x.score,gross:x.gross,profit:x.profit}))};r.games.push({year,count,score:+Math.max(...season.map(x=>x.score)).toFixed(1)});r.power=clamp(r.power+.018+Math.random()*.025+(r.momentum||0)*.004,.98,1.72);r.quality=clamp(r.quality+.018+Math.random()*.045,6.8,9.35);if((year+i)%4===0)r.tech=Math.min(7,(r.tech||1)+1);
+  });return candidates;
+}
+function playerAwardCandidateV18(g){let q=g.quality||{},readiness=g.mechanics?.readiness||1,pop=Math.min(10,Math.log10((g.units||0)+10)*2.65);return{title:g.name,genre:g.genre,score:g.score,gross:g.netRevenue||0,quality:{art:clamp(g.score*.56+Math.min(10,(q.art||0)/2.5)*.44,1,10),code:clamp(g.score*.55+readiness*10*.45,1,10),music:clamp(g.score*.56+Math.min(10,(q.music||0)/2.5)*.44,1,10),idea:clamp(g.score*.56+Math.min(10,(q.idea||0)/2.5)*.44,1,10)},popularity:clamp(g.score*.55+pop*.45,1,10),company:S.company,isPlayer:true,gameRef:g}}
+function rivalAwardMetricV18(g,key){if(key==='goty')return g.score;if(key==='popularity')return clamp(g.score*.58+Math.min(10,Math.log10(g.gross+10)*1.48)*.42,1,10);return g.quality[key]||g.score}
+function chooseAwardsV18(year,rivalGames){
+  let player=S.games.filter(g=>g.release?.startsWith(String(year))).map(playerAwardCandidateV18),all=[...player,...rivalGames],boost=S.corporate.awardBoost||0,categories=[['年度游戏','goty'],['最佳美术','art'],['最佳技术','code'],['最佳音乐','music'],['最佳创意','idea'],['玩家选择','popularity']];
+  let results=categories.map(([name,key])=>{let ranked=all.map(g=>({g,value:(g.isPlayer?(key==='goty'?g.score:key==='popularity'?g.popularity:g.quality[key]):rivalAwardMetricV18(g,key))+(g.isPlayer?boost:0)})).sort((a,b)=>b.value-a.value),win=ranked[0];if(!win)return{name,key,winner:null,nominees:[]};return{name,key,winner:win.g,value:win.value,nominees:ranked.slice(0,3).map(x=>x.g)}});
+  S.corporate.awardBoost=0;return results;
+}
+function applyAwardRewardsV18(results,year){let wins=0;results.forEach(r=>{let w=r.winner;if(!w)return;if(w.isPlayer){wins++;let top=r.key==='goty';S.fame+=top?4:1.4;S.fans+=top?900:260;S.rp+=top?6:2;if(top)S.money+=150000;w.gameRef.awards=w.gameRef.awards||[];w.gameRef.awards.push(`${year} ${r.name}`);w.gameRef.award=true;let ip=S.ips.find(x=>x.id===w.gameRef.ipId);if(ip)ip.recognition+=top?14:5}else{let rival=S.rivals.find(x=>x.id===w.rivalId);if(rival){rival.awards=(rival.awards||0)+1;rival.momentum=clamp((rival.momentum||0)+1,0,5)}}});return wins}
+
+window.openEvaluationV18=function(){
+  initV18();let profit=S.games.reduce((a,g)=>a+(g.profit||0),0),best=[...S.games].sort((a,b)=>b.score-a.score)[0],wins=S.awardHistory.reduce((a,x)=>a+(x.playerWins||0),0),valuation=Math.max(0,S.money+profit*.4+S.fans*80+S.fame*50000+wins*180000),grade=valuation>=36000000?'S':valuation>=19000000?'A':valuation>=9000000?'B':valuation>=3200000?'C':'D',legacy=Math.max(2,{S:12,A:9,B:6,C:4,D:2}[grade]);let old={};try{old=JSON.parse(localStorage.getItem(V17_META_KEY))||{}}catch{}localStorage.setItem(V17_META_KEY,JSON.stringify({legacy:Math.max(old.legacy||0,legacy),bestGrade:[old.bestGrade,grade].filter(Boolean).sort()[0]||grade}));S.evaluationSeen=true;S.pendingEvaluation=false;document.getElementById('v13Title').textContent='2038 年 · 十年董事会评估';document.getElementById('v13Body').innerHTML=`<div class="ending-grade">${grade}</div><h2>公司估值 ${money(valuation)}</h2><p>十年发行 ${S.games.length} 款 · 最佳评分 ${best?best.score.toFixed(1):'—'} · 获奖 ${wins} 项 · 粉丝 ${S.fans.toLocaleString()}</p><p class="hint">本局获得 ${legacy} 点传承研发经验。竞争难度、奖项和长期投资均已计入评价。</p><div class="actions"><button onclick="continueAfterEvaluationV17()">继续经营</button><button class="primary" onclick="legacyRestartV17()">带着经验重新创业</button></div>`;addNews('十年评估',`董事会给出 ${grade} 级评价，公司估值 ${money(valuation)}。`);save();render();
+};
+window.annualAwards=function(){
+  initV18();let year=S.year-1,yearGames=S.games.filter(g=>g.release?.startsWith(String(year))),rivalGames=simulateRivalSeasonV18(year),results=chooseAwardsV18(year,rivalGames),wins=applyAwardRewardsV18(results,year),rank=v13Rankings(year),myRank=rank.findIndex(x=>x.name===S.company)+1,goal=S.annualGoal,done=goal&&goalProgress(goal,year)>=goal[3];
+  if(done){S.rp+=8;S.fame+=2;addNews('年度目标达成',`${goal[1]}完成，获得研发点与品牌关注。`)}S.fame=Math.max(0,S.fame*.95);S.brand=v13Style();S.yearRecords[year]=`${year} 年：发行 ${yearGames.length} 款，行业收入排名 #${myRank}，获得 ${wins} 项奖项${done?'，年度目标达成。':'。'}`;S.awardHistory.push({year,playerWins:wins,categories:results.map(r=>({name:r.name,winner:r.winner?.title||'空缺',company:r.winner?.company||'',isPlayer:!!r.winner?.isPlayer,value:r.value||0}))});S.annualGoal=null;S.annualGoalYear=null;S.annualGoalKnownPlatforms=[];ensurePlatformPipelineV17();if(S.year>=2038&&!S.evaluationSeen)S.pendingEvaluation=true;
+  let awardRows=results.map(r=>`<div class="award-row ${r.winner?.isPlayer?'player-win':''}"><span>${r.name}</span><b>${r.winner?`《${r.winner.title}》`:'空缺'}</b><small>${r.winner?.company||'—'}${r.winner?.isPlayer?' · 你的公司':''}</small></div>`).join(''),evalButton=S.pendingEvaluation?`<button class="orange" onclick="openEvaluationV18()">查看十年董事会评估</button>`:'';
+  pauseFor('award',true);openV13(`${year} 年金像素奖`,`${awardRows}<p class="hint">${S.yearRecords[year]}${wins?` 公司获得 ${wins} 座奖杯。`:' 本年度奖项均被竞争公司夺得。'}</p><div class="actions"><button class="primary" onclick="chooseAnnualGoal()">制定 ${S.year} 年目标</button>${evalButton}</div>`,true);addNews('年度评奖',`${year} 年金像素奖揭晓，公司获得 ${wins} 项奖。`);save();render();
+};
+
+function v18Event(kind){
+  let active=S.projects.find(p=>!p.paused),latest=S.games[0],top=[...S.staff].sort((a,b)=>b.lvl-a.lvl)[0],map={
+    expo:{title:'年度游戏展邀请',text:'支付 ¥80,000 搭建展台，可以积累粉丝并提高下一款作品的首发关注。',acceptLabel:'参展',declineLabel:'放弃'},
+    training:{title:'制作人训练营',text:'支付 ¥95,000 让全员参加训练，员工会获得经验并恢复创作状态。',acceptLabel:'报名',declineLabel:'不参加'},
+    engine:{title:'商业引擎授权到期',text:'支付 ¥220,000 买下关键工具授权，可直接提升一级自研引擎；拒绝则当前项目增加技术债。',acceptLabel:'购买授权',declineLabel:'继续凑合'},
+    streamer:{title:'主播试玩邀约',text:latest?`头部主播愿意以 ¥50,000 合作试玩《${latest.name}》，可为旧作重新带来长尾销量。`:'头部主播愿意参观公司，支付 ¥50,000 可以积累第一批核心粉丝。',acceptLabel:'合作',declineLabel:'婉拒'},
+    leak:{title:'开发版本意外泄露',text:'支付 ¥90,000 启动危机公关；若保持沉默，公司名气和项目稳定性都会受损。',acceptLabel:'危机公关',declineLabel:'保持沉默'},
+    outage:{title:'服务器与备份故障',text:active?`《${active.name}》的开发资料出现损坏。支付 ¥140,000 紧急恢复，否则项目将返工并增加 Bug。`:'公司备份系统出现故障。支付 ¥140,000 可以完成基础设施修复。',acceptLabel:'紧急恢复',declineLabel:'承担损失'},
+    poach:{title:'竞争公司挖角',text:`竞争对手正在接触 ${top?.name||'核心员工'}。支付 ¥110,000 留任奖金可稳定团队，否则核心员工创作状态会受影响。`,acceptLabel:'支付留任金',declineLabel:'拒绝加价'},
+    platformFund:{title:'平台独占扶持',text:'平台愿意提供 ¥160,000 开发金，但下一款作品需要承担额外渠道分成。',acceptLabel:'接受扶持',declineLabel:'保持独立'},
+    audit:{title:'财务合规审查',text:'支付 ¥100,000 完成账目整改；拖延处理只需 ¥45,000，但会损失名气。',acceptLabel:'彻底整改',declineLabel:'最低处理'},
+    festival:{title:'玩家嘉年华',text:'支付 ¥75,000 举办玩家活动，可显著积累粉丝与社区影响力。',acceptLabel:'举办活动',declineLabel:'今年不办'},
+    awardCampaign:{title:'奖项公关季',text:'支付 ¥130,000 进行媒体看片与评奖推广，提高本年度各奖项的竞争力。',acceptLabel:'启动公关',declineLabel:'作品说话'},
+    renovation:{title:'办公室设备老化',text:'支付 ¥160,000 完成设备翻新；推迟会让全员损失体力和创作状态。',acceptLabel:'立即翻新',declineLabel:'推迟处理'},
+    grant:{title:'原创游戏扶持计划',text:'接受 ¥90,000 扶持金并获得研发点，但公开开发日志会轻微损失神秘感。',acceptLabel:'接受扶持',declineLabel:'不申请'},
+    interview:{title:'行业媒体专访',text:'接受采访可以增加名气，但也会让竞争公司更早了解你的项目方向。',acceptLabel:'接受采访',declineLabel:'低调开发'}
+  };return{kind,...map[kind]};
+}
+function spendEventV18(cost){if(S.money<cost){toast('公司资金不足，无法选择这个方案。');return false}S.money-=cost;return true}
+window.maybeEvent=function(){
+  initV18();if(S.event||hasOpenModal()||S.corporate.eventCooldown||Math.random()>.038)return;let recent=new Set(S.eventHistory.slice(-4).map(x=>x.kind)),pool=V18_EVENT_KINDS.filter(x=>!recent.has(x));if(!S.projects.length)pool=pool.filter(x=>!['leak','outage'].includes(x));let kind=pool[rnd(0,pool.length-1)],ev=v18Event(kind);if(!ev)return;S.event=ev;S.corporate.eventCooldown=7;pauseFor('eventDialog',true);document.getElementById('eventTitle').textContent=ev.title;document.getElementById('eventText').textContent=ev.text;let buttons=document.querySelectorAll('#eventDialog .dfoot button');if(buttons[0])buttons[0].textContent=ev.declineLabel;if(buttons[1])buttons[1].textContent=ev.acceptLabel;document.getElementById('eventDialog').showModal();
+};
+window.resolveEvent=function(accept){
+  initV18();let ev=S.event;if(!ev)return;let ok=true,active=S.projects.find(p=>!p.paused),latest=S.games[0],top=[...S.staff].sort((a,b)=>b.lvl-a.lvl)[0];
+  if(accept){
+    if(ev.kind==='expo'&&(ok=spendEventV18(80000))){S.fans+=650;S.fame+=.6;S.corporate.nextLaunchBoost=Math.max(S.corporate.nextLaunchBoost,.1)}
+    if(ev.kind==='training'&&(ok=spendEventV18(95000)))S.staff.forEach(e=>{e.xp+=2;e.energy=clamp(e.energy+15,0,100);e.creativity=clamp((e.creativity||0)+7,-30,8)});
+    if(ev.kind==='engine'&&(ok=spendEventV18(220000)))S.investments.engine=Math.min(V18_INVESTMENT_DEFS.engine.max,(S.investments.engine||0)+1);
+    if(ev.kind==='streamer'&&(ok=spendEventV18(50000))){S.fans+=latest?500:280;if(latest)v14BoostLongTail(latest,'update')}
+    if(ev.kind==='leak'&&(ok=spendEventV18(90000))){S.fame+=.2;if(active)active.bugs=Math.max(0,active.bugs-2)}
+    if(ev.kind==='outage'&&(ok=spendEventV18(140000)))S.investments.qa=Math.min(5,(S.investments.qa||0)+1);
+    if(ev.kind==='poach'&&(ok=spendEventV18(110000))&&top){top.energy=clamp(top.energy+18,0,100);top.creativity=8}
+    if(ev.kind==='platformFund'){S.money+=160000;S.corporate.contractPenalty=Math.max(S.corporate.contractPenalty,.12)}
+    if(ev.kind==='audit'&&(ok=spendEventV18(100000)))S.fame+=.25;
+    if(ev.kind==='festival'&&(ok=spendEventV18(75000))){S.fans+=950;Object.keys(S.audiences).forEach(k=>S.audiences[k]+=12)}
+    if(ev.kind==='awardCampaign'&&(ok=spendEventV18(130000)))S.corporate.awardBoost=Math.max(S.corporate.awardBoost,.5);
+    if(ev.kind==='renovation'&&(ok=spendEventV18(160000)))S.staff.forEach(e=>e.energy=clamp(e.energy+10,0,100));
+    if(ev.kind==='grant'){S.money+=90000;S.rp+=3;S.fame=Math.max(0,S.fame-.2)}
+    if(ev.kind==='interview'){S.fame+=.7;S.fans+=180;S.rivals.forEach(r=>r.momentum=clamp((r.momentum||0)+.15,0,5))}
+  }else{
+    if(ev.kind==='engine'&&active)active.bugs+=4;if(ev.kind==='leak'){S.fame=Math.max(0,S.fame-1);S.fans=Math.max(0,Math.round(S.fans*.9));if(active)active.bugs+=3}
+    if(ev.kind==='outage'&&active){active.progress=Math.max(0,active.progress-22);active.bugs+=6}if(ev.kind==='poach'&&top){top.creativity=clamp((top.creativity||0)-18,-30,8);top.energy=clamp(top.energy-15,0,100)}
+    if(ev.kind==='audit'){S.money-=Math.min(S.money,45000);S.fame=Math.max(0,S.fame-1.1)}if(ev.kind==='renovation')S.staff.forEach(e=>{e.energy=clamp(e.energy-12,0,100);e.creativity=clamp((e.creativity||0)-5,-30,8)});
+  }
+  if(!ok)return;S.eventHistory.push({year:S.year,month:S.month,week:S.week,kind:ev.kind,title:ev.title,accepted:!!accept});addNews('行业事件',`${accept?'公司接受了':'公司拒绝了'}「${ev.title}」。`,ev.title);S.event=null;let d=document.getElementById('eventDialog');if(d.open)d.close();window.v14ResumePause();save();render();restorePendingDecisionV18();
+};
+
+let v18BaseRankings=window.v13Rankings;
+window.v13Rankings=function(year=S.year){initV18();let me={name:S.company,style:S.brand,income:S.games.filter(g=>g.release?.startsWith(String(year))).reduce((a,g)=>a+g.netRevenue,0)},elapsed=(S.month-1)*4+S.week,forecast=.52+elapsed/48*.55,rivals=S.rivals.map(r=>({name:r.name,style:r.style,income:r.seasonHistory?.[year]?.income??Math.round((r.income||600000)*forecast)}));return[me,...rivals].sort((a,b)=>b.income-a.income)};
+
+let v18BaseRenderHome=window.renderHome;
+window.renderHome=function(){v18BaseRenderHome();let box=document.querySelector('#page-home .scene-actions');if(box&&!box.querySelector('.investment-open'))box.insertAdjacentHTML('beforeend',`<button class="investment-open" onclick="openInvestmentsV18()">投资</button>`)};
+let v18BaseRenderResearch=window.renderResearch;
+window.renderResearch=function(){v18BaseRenderResearch();initV18();let levels=Object.entries(V18_INVESTMENT_DEFS).map(([id,d])=>`${d.name} Lv.${S.investments[id]||0}`).join(' · ');document.getElementById('page-research').insertAdjacentHTML('beforeend',`<section class="card section"><div class="split"><div class="grow"><h2>公司长期投资</h2><p>${levels}</p></div><button class="primary" onclick="openInvestmentsV18()">配置经营预算</button></div></section>`)};
+let v18BaseRenderHistory=window.renderHistory;
+window.renderHistory=function(){v18BaseRenderHistory();initV18();let rows=S.awardHistory.slice(-5).reverse().map(x=>`<div class="record"><b>${x.year} 年金像素奖</b><span>公司获得 ${x.playerWins} 项 · ${x.categories.filter(c=>c.isPlayer).map(c=>c.name).join('、')||'未获奖'}</span></div>`).join('')||'<div class="empty">第一个完整经营年度结束后会生成奖项档案。</div>';document.getElementById('page-history').insertAdjacentHTML('beforeend',`<section class="card section"><h2>年度奖项档案</h2>${rows}</section>`)};
+let v18BaseOpenStrategy=window.openStrategy;
+window.openStrategy=function(tab='overview'){initV18();v18BaseOpenStrategy(tab);let body=document.getElementById('v13Body');if(!body)return;if(tab==='rivals'){let cards=S.rivals.map(r=>`<div class="rival-card"><h3>${r.name} <span class="tag">制作 ${r.quality.toFixed(1)}</span></h3><p>${r.style} · 专长 ${r.specialties.join(' / ')}<br>实力 ×${r.power.toFixed(2)} · 技术 Lv.${r.tech} · 奖杯 ${r.awards||0}<br>最近年度收入 ${money(r.income||0)} · 利润 ${money(r.profit||0)}</p></div>`).join('');body.insertAdjacentHTML('beforeend',`<h3>竞争公司制作与盈利能力</h3><div class="portfolio">${cards}</div>`)}if(tab==='year'){let last=S.awardHistory.at(-1),awardText=last?`${last.year} 年获得 ${last.playerWins} 项：${last.categories.filter(c=>c.isPlayer).map(c=>c.name).join('、')||'无'}`:'尚无评奖记录';body.insertAdjacentHTML('beforeend',`<h3>金像素奖</h3><p>${awardText}</p>${S.pendingEvaluation?'<button class="orange" onclick="openEvaluationV18()">查看待处理的十年评估</button>':''}`)}};
+
+let v18BaseRender=window.render;
+window.render=function(){if(S)initV18();v18BaseRender()};
+let v18BaseShowGame=window.showGame;
+function restorePendingDecisionV18(){
+  let p=S?.projects?.find(x=>x.pendingDecision!=null);if(!p||hasOpenModal())return;
+  let choices=p.pendingChoices?.length?p.pendingChoices:v17Shuffle([...(decisionsV12[p.pendingDecision]||[]),...(V17_EXTRA_DECISIONS[p.pendingDecision]||[])]).slice(0,3);p.pendingChoices=choices;S.decisionProjectId=p.id;pauseFor('decisionDialog',true);
+  document.getElementById('decisionTitle').textContent=`《${p.name}》· ${p.phases[p.pendingDecision]}抉择`;
+  document.getElementById('decisionBody').innerHTML=`<div class="decision-scene"><b>${S.staff.find(e=>e.id===p.leader)?.name||'制作人'}正在等待你的决定。</b>上次离开时的方案已经恢复，项目不会丢失进度。</div>${choices.map((x,i)=>`<div class="choice"><h3>${x[0]}</h3><p>${x[1]}</p><button class="primary" onclick="applyDecision(${i})">采用这个方向</button></div>`).join('')}`;
+  document.getElementById('decisionDialog').showModal();
+}
+function restorePendingEventV18(){
+  if(!S?.event||hasOpenModal())return false;let ev={...v18Event(S.event.kind),...S.event};S.event=ev;pauseFor('eventDialog',true);document.getElementById('eventTitle').textContent=ev.title;document.getElementById('eventText').textContent=ev.text;let buttons=document.querySelectorAll('#eventDialog .dfoot button');if(buttons[0])buttons[0].textContent=ev.declineLabel;if(buttons[1])buttons[1].textContent=ev.acceptLabel;document.getElementById('eventDialog').showModal();return true;
+}
+window.showGame=function(){v18BaseShowGame();initV18();installUiV18();render();if(!restorePendingEventV18())restorePendingDecisionV18()};
+function installUiV18(){
+  let eye=document.querySelector('.eyebrow');if(eye)eye.textContent='游戏公司经营模拟 · V1.8';document.title=`${GAME_TITLE} V1.8`;
+  let speedBar=document.querySelector('.speed');if(speedBar&&!speedBar.dataset.v18Bound){speedBar.dataset.v18Bound='1';speedBar.addEventListener('click',e=>{let b=e.target.closest('button[data-s]');if(b&&+b.dataset.s>0)v18PreferredSpeed=+b.dataset.s},true)}
+  let help=document.querySelector('#helpDialog .dbody');if(help)help.innerHTML=`<p>1× 速度下每 5 秒推进一周。暂停时不会产生收入、进度或恢复，关闭面板后会回到进入前的速度。</p><p>项目规模、团队能力、设施、长期投资与市场竞争共同决定品质和销量。同类型强敌会分流潜在销量，市场情报部可以减轻压力。</p><p>每个完整年度会举行金像素奖，包含年度游戏、最佳美术、技术、音乐、创意和玩家选择六个奖项。竞争公司会真实制作作品并参与评选。</p><p>资金除了项目、招聘和办公室，还可投入自研引擎、质量保障、玩家社区、市场情报、团队奖金与品牌战役。行业事件会带来机会、支出和经营风险。</p><p>2038 年进行十年董事会评估，可继续经营或带着传承经验重新创业。</p>`;
+}
+document.head.insertAdjacentHTML('beforeend',`<style id="v18-style">.investment-row{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #dfd1b5}.investment-row h3{margin:0 0 4px}.investment-row p{margin:0;color:var(--muted)}.award-row{display:grid;grid-template-columns:100px 1fr auto;gap:10px;align-items:center;padding:10px;border-bottom:1px solid #e7d8b8}.award-row.player-win{background:#fff0bd;border:2px solid #d6a94b;border-radius:8px;margin:5px 0}.award-row small{text-align:right}.rival-card{min-height:130px}.scene-actions{grid-template-columns:repeat(3,minmax(0,1fr))}@media(max-width:720px){.investment-row{grid-template-columns:1fr}.investment-row button{width:100%}.award-row{grid-template-columns:88px 1fr}.award-row small{grid-column:1/-1;text-align:left}}</style>`);
+installUiV18();bindDialogSafetyV17();
 </script></body></html>
